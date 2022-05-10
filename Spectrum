@@ -1,0 +1,57 @@
+import numpy as np
+import librosa 
+import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
+import math
+import scipy.fft
+
+(sig_pad, rate1)   = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/pad.wav',sr=None)
+(sig_piano, rate2) = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/piano.wav', sr=None)
+(sig_guitar, rate3)= librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/rythm guitar 1.wav', sr=None)
+(sig_shaker, rate4)= librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/shakerl left new.wav', sr=None)
+(sig_voice, rate5) = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/voice main1.wav', sr=None)
+
+a=sig_pad+sig_piano+sig_guitar+sig_shaker+sig_voice
+
+plt.figure(1)
+time = np.linspace(0, len(sig_pad) / rate1,num = len(sig_pad))
+plt.plot(time,a)
+plt.show
+
+
+
+def sliced_signal(signal,window_size,no_of_windows):  #window_size - no of seconds * rate,signal is a one dimensional matrix
+
+  #no_of_windows = math.floor(len(signal)/window_size)#no_of_windows = math.floor(len(signal)/window_size)
+  if(no_of_windows>math.floor(len(signal)/window_size)):
+    print("no_of_windows you entered exceed the actal amount of windows")
+    sliced_matrix = [];
+  else:
+    signal = signal[0:no_of_windows*window_size]
+    sliced_matrix = np.reshape(signal,(no_of_windows,window_size))
+    Fourier= scipy.fft.fft( sliced_matrix,n=None,axis=1 )
+    freq = np.fft.fftfreq(np.size(sliced_matrix[0,:]))
+    
+  return sliced_matrix,Fourier,freq
+
+
+
+
+
+[A,B,freq]=sliced_signal(sig_pad,int(rate1/4),190)
+X=np.arange(np.size(freq))
+Y=np.arange(np.size(B[:,0]))
+Z=abs(B)
+fig = plt.figure()
+ax = plt.axes(projection='3d')
+#ax.contour3D(X,Y, abs(B[X,Y]), 50, cmap='binary')
+
+#ax.contour3D(X, Y, Z, 50, cmap='binary')
+ax.plot_surface(X,Y, Z[Y,X], rstride=1, cstride=1,cmap='viridis', edgecolor='none')
+print(np.shape(X))
+print(np.shape(Y))
+print(np.shape(Z))
+
+
+
+
