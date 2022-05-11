@@ -1,0 +1,42 @@
+#creating neural network
+import torch.nn as nn
+import torch.nn.functional as F
+
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(882, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, 64)
+        self.fc4 = nn.Linear(64, 882)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = self.fc4(x)
+        return F.log_softmax(x, dim=1)
+
+net = Net()
+print(net)
+
+
+
+
+import torch.optim as optim
+
+loss_function = nn.CrossEntropyLoss()
+optimizer = optim.Adam(net.parameters(), lr=0.00001)
+
+
+
+for epoch in range(10): # 3 full passes over the data
+    for data in range(len(train_set[0])):  # `data` is a batch of data
+        x = train_set[0][data]  # X is the batch of features, y is the batch of targets.
+        y = train_set[1][data]
+        net.zero_grad()  # sets gradients to 0 before loss calc. You will do this likely every step.
+        output = net(x.view(-1,882))  # pass in the reshaped batch (recall they are 28x28 atm)
+        loss = loss_function(output, y.view(-1,882) )  # calc and grab the loss value
+        loss.backward()  # apply this loss backwards thru the network's parameters
+        optimizer.step()  # attempt to optimize weights to account for loss/gradients
+    print(loss) 
