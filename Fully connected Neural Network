@@ -1,4 +1,4 @@
-#creating neural network
+#creating neural network python
 import torch.nn as nn
 import torch.nn.functional as F
 
