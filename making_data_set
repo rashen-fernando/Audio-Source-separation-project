@@ -1,0 +1,72 @@
+#python
+import numpy as np
+import librosa 
+import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
+import math
+import scipy.fft
+
+(sig_pad, rate1)   = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/pad.wav',sr=None)
+(sig_piano, rate2) = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/piano.wav', sr=None)
+(sig_guitar, rate3)= librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/rythm guitar 1.wav', sr=None)
+(sig_shaker, rate4)= librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/shakerl left new.wav', sr=None)
+(sig_voice, rate5) = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/voice main1.wav', sr=None)
+
+y1=sig_pad+sig_piano+sig_guitar+sig_shaker+sig_voice
+y2=sig_guitar+sig_shaker+sig_voice
+a = np.array(  np.concatenate( (y1, y2) )  )                #data type float 32
+b = np.array(  np.concatenate( (sig_voice,sig_voice) )  )    
+
+
+
+#plt.figure(1)
+#time = np.linspace(0, len(sig_pad) / rate1,num = len(sig_pad))
+#plt.plot(time,a)
+#plt.show
+print((a).shape)
+print((b).shape)
+
+
+
+def make_dataset(a,b,shuffle,batch_size,time_window_size=882):        #shuffle is boolean 1 or 0 , batch size > 0. time_window_size = 882 means 20 micrsecond samples are taken in to account
+
+  data_size = math.floor(len(a)/time_window_size)       #size of data,when more data gets added change this
+  training_data = np.zeros((2,data_size,time_window_size), dtype=np.float32)
+
+#making a dataset of input data audio and expected output audio.training_data[0] corresponds to data we input training data[1] corresponds to expected output data
+  for i in range(data_size):
+    training_data[0][i] = a[i*time_window_size : i*time_window_size+time_window_size]   #training data
+    training_data[1][i] = b[i*time_window_size : i*time_window_size+time_window_size]  #expected outcome or output data or labels
+
+#shuffle input data to generalise thhe network more
+  if (shuffle):
+    p = np.random.permutation(len(training_data[1]))
+    training_data[0] = training_data[0][p]
+    training_data[1] = training_data[1][p]
+
+
+#dividing in to batch size chunks
+
+  train_set = np.zeros((2,math.floor(data_size/batch_size),batch_size,time_window_size), dtype=np.float32)
+  for i in range(math.floor(data_size/batch_size)):
+    train_set[0][i] = training_data[0][i*batch_size : i*batch_size+batch_size]
+    train_set[1][i] = training_data[1][i*batch_size : i*batch_size+batch_size]
+
+  return train_set
+
+
+
+
+
+from torch.utils.data import Dataset
+import torch
+
+#this block converts numpy array in to tensor
+training_data = make_dataset(a,b,0,10)
+train_set = torch.from_numpy(training_data)
+
+
+#print(training_data[0][9])
+#print(label[0][9])
+print((training_data).shape)
+print(train_set.shape)
