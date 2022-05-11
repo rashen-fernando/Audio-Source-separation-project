@@ -1,0 +1,25 @@
+def audio_retrieval(out):   #out is a tensor.we convert it to a numpy array and concatanate all the batch chunks in to one long vector
+  #audio = np.empty([1,len(out)*len(out[0])])
+  audio=[]
+  for i in range(len(out)):
+    separated_voice = out[i].detach().numpy()
+    audio=np.concatenate((audio,separated_voice))
+
+  return audio
+
+
+
+#testing data
+y3 = sig_guitar+sig_piano+sig_voice
+test = make_dataset(y3,sig_voice,1,10)
+test_set = torch.from_numpy(test)
+out = net(test_set[0].view(-1,882))
+
+
+audio=audio_retrieval(out)
+print((audio).shape)
+
+
+
+import soundfile as sf
+sf.write('stereo_file1.wav', audio, 44100)
