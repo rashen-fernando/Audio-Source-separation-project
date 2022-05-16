@@ -1,0 +1,297 @@
+#dataset preparation 
+import numpy as np
+import librosa 
+import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
+import math
+import scipy.fft
+import soundfile as sf
+
+#vishwa's song
+(sig_pad, rate1)   = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/pad.wav',sr=None)
+(sig_piano, rate2) = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/piano.wav', sr=None)
+(sig_guitar, rate3)= librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/rythm guitar 1.wav', sr=None)
+(sig_shaker, rate4)= librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/shakerl left new.wav', sr=None)
+(sig_voice, rate5) = librosa.load('/content/drive/Shareddrives/G-33-2022/Audios/voice main1.wav', sr=None)
+
+#beatles
+#(beatles_acoustic, rate6)   = sf.read('/content/drive/Shareddrives/G-33-2022/Audios/beatles mr postman/0014783_Please_Mr._Postman_[04_Acoustic_Guitar].mp3')
+#(beatles_electric, rate7) = sf.read('/content/drive/Shareddrives/G-33-2022/Audios/beatles mr postman/0014783_Please_Mr._Postman_[05_Electric_Guitar].mp3')
+#(beatles_bass, rate8)= sf.read('/content/drive/Shareddrives/G-33-2022/Audios/beatles mr postman/0014783_Please_Mr._Postman_[03_Bass].mp3')
+#(beatles_vocal, rate9)= sf.read('/content/drive/Shareddrives/G-33-2022/Audios/beatles mr postman/0014783_Please_Mr._Postman_[06_Backing_Vocals].mp3')
+
+
+y1=sig_pad+sig_piano+sig_guitar+sig_shaker+sig_voice
+y2=sig_guitar+sig_shaker+sig_voice
+#y3 = beatles_vocal+beatles_bass+beatles_electric+beatles_acoustic
+#y4 = beatles_vocal+beatles_bass
+
+a = np.array(  np.concatenate( (y1, y2) )  )                #data type float 32
+b = np.array(  np.concatenate( (sig_voice,sig_voice) )  )    
+
+
+def make_dataset(a,b,shuffle,batch_size,time_window_size,overlapping):        #shuffle is boolean 1 or 0 , batch size > 0. time_window_size = 882 means 20 micrsecond samples are taken in to account,a = input data,b=output expected data,overlapping===> if data overlaps 1,else 0
+
+  data_size = math.floor(len(a)/time_window_size)     #size of data,when more data gets added change this
+  training_data = np.zeros((2,data_size,time_window_size), dtype=np.float32)
+
+#making a dataset of input data audio and expected output audio.training_data[0] corresponds to data we input training data[1] corresponds to expected output data
+  for i in range(data_size):
+    training_data[0][i] = a[i*time_window_size-bool(overlapping)*bool(i)*int(time_window_size/2) : i*time_window_size+bool(overlapping) * ( bool(i)*int(time_window_size/2)+(1-bool(i))*int(time_window_size) ) +(1-bool(overlapping))*int(time_window_size)]   #training data (here time windows overlap,for not to overlap =  a[i*time_window_size : i*time_window_size+time_window_size] )
+    training_data[1][i] = b[i*time_window_size-bool(overlapping)*bool(i)*int(time_window_size/2) : i*time_window_size+bool(overlapping) * ( bool(i)*int(time_window_size/2)+(1-bool(i))*int(time_window_size) ) +(1-bool(overlapping))*int(time_window_size)]  #expected outcome or output data or labels
+
+#shuffle input data to generalise thhe network more
+  if (shuffle):
+    p = np.random.permutation(len(training_data[1]))
+    training_data[0] = training_data[0][p]
+    training_data[1] = training_data[1][p]
+
+
+#dividing in to batch size chunks
+
+  train_set = np.zeros((2,math.floor(data_size/batch_size),batch_size,time_window_size), dtype=np.float32)
+  for i in range(math.floor(data_size/batch_size)):
+    train_set[0][i] = training_data[0][i*batch_size : i*batch_size+batch_size]
+    train_set[1][i] = training_data[1][i*batch_size : i*batch_size+batch_size]
+
+  return train_set
+  
+  
+  
+  from torch.utils.data import Dataset
+import torch
+
+#this block converts numpy array in to tensor
+shuffle=0
+batch_size=5
+time_window_size = 80
+overlapping = 1
+training_data = make_dataset(a,b,shuffle,batch_size,time_window_size,overlapping)
+train_set = torch.from_numpy(training_data)
+
+
+#print(training_data[0][9])
+#print(label[0][9])
+print("training data shape = ",(training_data).shape)
+print(train_set.shape)
+
+
+
+#creating neural network
+import torch.nn as nn
+import torch.nn.functional as F
+
+class OneDConvBlock(nn.Module):
+    def __init__(self,B,H,L,P,Sc,dil):
+        super().__init__()
+        '''B - number of inut channels
+           L - Length of filters (in samples)
+           H - number of channels in the convolutional blocks
+           P - kernal size in convolution blocks
+           Sc - Number of channels in the skip connection which gets summed up to use as a output in TCN
+           dil - dilation factor 1,2,4,8,.. '''
+        pad    =   math.floor(dil*(P-1)/2)
+        self.pointConv1 = nn.Conv1d(B,H,P,stride=1,padding=pad,dilation=dil,padding_mode='zeros')   #when padding = dilation L wont change
+        self.normalization = nn.BatchNorm1d(L)
+        self.Dconv = nn.Conv1d(H,H,P,stride=1,padding=pad,dilation=dil,padding_mode='zeros')
+        self.pointConv2 = nn.Conv1d(H,B,P,stride=1,padding=pad,dilation=dil,padding_mode='zeros')
+        self.pointConv3 = nn.Conv1d(H,Sc,P,stride=1,padding=pad,dilation=dil,padding_mode='zeros')
+
+    def forwardnet(self, x):
+        inp = x
+        x = F.rrelu(self.pointConv1(x))
+        x = self.normalization(x)
+        x = F.rrelu(self.Dconv(x))
+        x = self.normalization(x)
+        y = self.pointConv3(x)        #skip connection   [Sc,L]
+        x = self.pointConv2(x)+inp    #output goes in to the next 1-D conv block [B,L]
+        
+        return x,y
+
+    
+              
+x=torch.randn(10,882)
+net = OneDConvBlock(B=10,H=40,L=882,P=3,Sc=20,dil=2)
+out,skip = net.forwardnet(x)
+print(net)
+print(torch.transpose((torch.transpose(x,0,1)),0,1).shape)
+print(out.shape)
+print(skip.shape)
+
+
+class separator_block(nn.Module):                          #8 1Dconv blocks in one column where input params H.shape=[1,8] , Kernal.shape = [1,8]  (kernal vector should consist only odd values)
+    def __init__(self,reduced_time_size,H,kernal,inp_batch_size):         #we can input H vector consist of varying sizes for H and a vector for varying kernal size, inp_batch_size to variable batch sizes
+      super().__init__()
+      self.TCN0 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 1)
+      self.TCN1 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 2)
+      self.TCN2 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 4)
+      self.TCN3 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 8)
+      self.TCN4 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 16)
+      self.TCN5 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 32)
+      self.TCN6 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 64)
+      self.TCN7 = OneDConvBlock(reduced_time_size , H , inp_batch_size    ,kernal , reduced_time_size, 128)
+
+    def forwardsep(self,x):
+      out,skip = self.TCN0.forwardnet(x)
+      sum      = skip
+      out,skip = self.TCN1.forwardnet(out)
+      sum      = sum + skip
+      out,skip = self.TCN2.forwardnet(out)
+      sum      = sum + skip
+      out,skip = self.TCN3.forwardnet(out)
+      sum      = sum + skip
+      out,skip = self.TCN4.forwardnet(out)
+      sum      = sum + skip
+      out,skip = self.TCN5.forwardnet(out)
+      sum      = sum + skip
+      out,skip = self.TCN6.forwardnet(out)
+      sum      = sum + skip
+      out,skip = self.TCN7.forwardnet(out)
+      sum      = sum + skip
+
+      return out,sum
+
+    
+
+#creating neural network
+class convTasnet(nn.Module):
+    def __init__(self,batch_size,time_window_size,kernal_size,reduced_time_size,H):                                                                                        #M - number of conv1D blocks in a column  , N - number of columns 
+      nn.Module.__init__(self)
+      reduced_time_size = math.floor(time_window_size/8)                                                                  #the number of features of the output from encoder(reduced input)
+      #kernal_size = 3  
+      
+      #encoder                                                                                                                    #kernal size should be less than the L value of theoneDconv block
+      self.encoder = OneDConvBlock(time_window_size,reduced_time_size,batch_size,kernal_size,reduced_time_size,1)         #dimension reduction. If input.shape(batch_size,time_window_size) what we need to reduce is time_window_size,Number of samples in order to transform the waveform in to a different representation.most probably the transpose of the input signal is insered here
+      self.layerNorm = nn.LayerNorm(reduced_time_size)                                                                           #traspose the output of encoder in oreder  to get [batch_size,time_window_size] form.Because of dimensionality reduction time_window_size will be reduced 
+      self.one_X_oneconv = nn.Conv1d(reduced_time_size , reduced_time_size , 7 ,stride=1, padding=3 , dilation=1 ,padding_mode='zeros')  #to get exact input shape as output,by restricting padding variable , padding = [stride*(Lout-1)-Lin + dilation * (kernal size -1) + 1]/2
+      
+      #Separator
+      self.column1  = separator_block(reduced_time_size,H,kernal_size,batch_size)
+      self.column2  = separator_block(reduced_time_size,H,kernal_size,batch_size)
+      self.column3  = separator_block(reduced_time_size,H,kernal_size,batch_size)
+      self.column4  = separator_block(reduced_time_size,H,kernal_size,batch_size)
+      self.column5  = separator_block(reduced_time_size,H,kernal_size,batch_size)
+      self.column6  = separator_block(reduced_time_size,H,kernal_size,batch_size)
+
+      #decoder
+      self.one_X_oneconv2 = nn.Conv1d(reduced_time_size , reduced_time_size, 7 ,stride=1, padding=3 , dilation=1 ,padding_mode='zeros')
+      self.decoder = OneDConvBlock(reduced_time_size,H,batch_size,kernal_size,time_window_size,1)       #should increase time window size.hence the transposed signal is fed to the convD layer
+
+    def forward(self, x):                                                                                                 #x = [batch size,time window size] -----> we get the input in this form
+      y,x     = self.encoder.forwardnet(torch.transpose(x,0,1))                                                           #x = [reduced time window size,batch size] --->this is the parameter we pass inside to the neural network
+      mixture = x                                                                                                         #mix = [batch size,time window size]------>multiply this with the masks derived elemant wise
+
+      x       = self.layerNorm(torch.transpose(x,0,1))                                                                                         #x = [reduced time window size,batch size] ----> transpose before normalizing because normalization is done over samples and not over batches
+      x       = self.one_X_oneconv(torch.transpose(x,0,1))                                                                                     #x = [reduced time window size,batch size] ---->all the settings (stride,dilation,padding) are selected such that the size wont change
+      
+      x,sum1   = self.column1.forwardsep(x)                                                                               #x = [reduced time window size,batch size]-----> x is fed into the next neural network  ,  sum = [batch size,reduced time window size]
+      x,sum2   = self.column2.forwardsep(x)
+      x,sum3   = self.column3.forwardsep(x)
+      x,sum4   = self.column4.forwardsep(x)
+      x,sum5   = self.column5.forwardsep(x)
+      x,sum6   = self.column6.forwardsep(x)
+      sum      = F.rrelu(sum1+sum2+sum3+sum4+sum5+sum6)
+      mask     = torch.sigmoid(self.one_X_oneconv2(sum))                                                                  #sum = [reduced time window size,batch size]
+      decod    = torch.mul(mask,mixture)                                                                                 #to_decode = [batch size,reduced time window size]
+
+      out,sep      = self.decoder.forwardnet(decod)
+      return torch.transpose(sep,0,1)
+
+
+    
+    
+
+
+x=torch.randn(batch_size,time_window_size)
+net = convTasnet(batch_size,time_window_size,3,math.floor(time_window_size/2),time_window_size*2)
+out = net(x)
+#print(net)
+print(x.shape)
+#print(torch.transpose(x,0,1).shape)
+print(out.shape)
+#print(skip.shape)
+
+
+import torch.optim as optim
+
+loss_function = nn.CrossEntropyLoss()
+optimizer = optim.Adam(net.parameters(), lr=0.00001)
+
+
+for epoch in range(2): # 3 full passes over the data
+    for data in range(len(train_set[0])):  # `data` is a batch of data
+        x = train_set[0][data]  # X is the batch of features, y is the batch of targets.
+        y = train_set[1][data]
+        net.zero_grad()  # sets gradients to 0 before loss calc. You will do this likely every step.
+        output = net(x)  # pass in the reshaped batch (recall they are 28x28 atm)
+        loss = loss_function(output, y )  # calc and grab the loss value
+        loss.backward()  # apply this loss backwards thru the network's parameters
+        optimizer.step()  # attempt to optimize weights to account for loss/gradients
+    print(loss) 
+    
+    
+    
+torch.save(net.state_dict(), 'trained')
+#net = torch.load('trained')
+#net.eval()
+
+
+#testing data
+ytest = (sig_guitar+sig_piano+sig_voice)[44100*10:44100*40]
+test = make_dataset(ytest,sig_voice[44100*10:44100*40],0,batch_size,time_window_size,0)
+test_set = torch.from_numpy(test)
+
+out = torch.zeros(1,time_window_size)                #neural network is designed for batch size data chunks.So we got no option but to send data in [batch_size,time_window] size form. Once a time we send [batch_size,time_window] data chunk and concatanate it with an emptyy tensor.
+for i in range(len(test_set[0])):
+  temp = net(test_set[0][i])
+  out = torch.cat(  (out, temp) , 0 )
+
+
+
+print("original mixture signal            =  ", ytest.shape)
+print("expected output signal data size   =  ",sig_voice.shape)
+print("dataset shape                      =  ",test.shape)
+print("neural network separated data size =  ",out[1:].shape)         #we added an empty zero tensor before.to get rid of it we use [1 :]
+
+
+
+
+def audio_retrieval(out):   #out is a tensor.we convert it to a numpy array and concatanate all the batch chunks in to one long vector.then we convert it to a audile audio
+  #audio = np.empty([1,len(out)*len(out[0])])
+  audio=[]
+  for i in range(len(out)):
+    separated_voice = out[i].detach().numpy()
+    audio=np.concatenate((audio,separated_voice))
+
+  audio=(audio-np.mean(audio))
+  sf.write('stereo_file.flac',audio, 44100)
+
+  mse = ((sig_voice[1:500000] - audio[1:500000])**2).mean(axis=0)
+  print("MSE = ",mse)
+  return audio
+
+#audio=audio_retrieval(out)
+#audio=(audio-np.mean(audio))
+#print((audio).shape)
+#sf.write('stereo_file.flac',audio, 44100)
+
+#plot data
+#plt.figure(1)
+#plt.title("original Signal vs predicted signal")
+#plt.plot(audio)
+#plt.plot(sig_voice)
+#plt.show()
+
+
+aud=audio_retrieval(out[1 :])
+
+
+
+#plot data
+plt.figure(1)
+plt.title("original Signal vs predicted signal")
+plt.plot((aud-np.mean(aud))/np.std(aud))
+plt.plot(sig_voice)
+
+plt.legend(["predicted source", "original source"], loc ="lower right")
+plt.show()
