@@ -1,0 +1,39 @@
+%mat lab audio data visualization
+[ins1,Fs1] = audioread('guitar.ogg'); ins1 = ins1(:,1);
+[ins2,Fs2] = audioread('drums.ogg');    ins2 = ins2(:,1);
+[ins3,Fs3] = audioread('rhythm.ogg');   ins3 = ins3(:,1);
+[ins4,Fs4] = audioread('song.ogg');     ins4 = ins4(:,1);
+
+
+
+S1=stft(ins4,Fs1,'Window',kaiser(256,5),'OverlapLength',220,'FFTLength',512);
+   
+
+
+
+%maximum frequency
+M = [];
+for i=1:size(S1,2)
+    [maximum,ind] = max(abs(S1(257:512,i)));
+    M = [M ind];
+end
+
+%spectrum centeroid
+C = [];
+dist = (1:256);
+
+for i=1:size(S1,2)
+    v = ceil(  (abs(S1(257:512,i))'*dist')/sum(abs(S1(257:512,i)))  );
+    if(isnan(v))
+        v=0;
+    end
+    C =[C v];
+end
+
+Distance_vactor = C-M;
+t = 1:size(Distance_vactor,2);
+f1 = figure;
+plot(t,Distance_vactor);
+title(sprintf('vocal, distance between centroid and dominant freq '));
+xlabel('sample no')
+ylabel( 'number of frequency bins')
